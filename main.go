@@ -3,9 +3,11 @@ package main
 import (
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"log"
 	"math/big"
 	"net/http"
+	"sync"
 )
 
 type shortenRequest struct {
@@ -22,6 +24,7 @@ func health(w http.ResponseWriter, r *http.Request) {
 
 var links = map[string]string{}
 var reserved = map[string]bool{"health": true}
+var mu sync.Mutex
 
 func newCode() (string, error) {
 	const letters = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -38,6 +41,23 @@ func newCode() (string, error) {
 	return string(b), nil
 }
 
+func store(url string) (string, error) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	for attempt := 0; attempt < 5; attempt++ {
+		c, err := newCode()
+		if err != nil {
+			return "", err
+		}
+		if _, exists := links[c]; !exists && !reserved[c] {
+			links[c] = url
+			return c, nil
+		}
+	}
+	return "", errors.New("reached max attempt")
+}
+
 func shorten(w http.ResponseWriter, r *http.Request) {
 	var req shortenRequest
 
@@ -51,24 +71,11 @@ func shorten(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var code string
-	for attempt := 0; attempt < 5; attempt++ {
-		c, err := newCode()
-		if err != nil {
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-			return
-		}
-
-		if _, exists := links[c]; !exists && !reserved[c] {
-			code = c
-			break
-		}
-	}
-	if code == "" {
+	code, err := store(req.URL)
+	if err != nil {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
-	links[code] = req.URL
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -80,7 +87,11 @@ func shorten(w http.ResponseWriter, r *http.Request) {
 
 func redirect(w http.ResponseWriter, r *http.Request) {
 	code := r.PathValue("code")
+
+	mu.Lock()
 	url, ok := links[code]
+	mu.Unlock()
+
 	if !ok {
 		http.NotFound(w, r)
 		return
