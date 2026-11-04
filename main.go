@@ -98,7 +98,7 @@ func redirect(w http.ResponseWriter, r *http.Request) {
 
 	var target string
 	err := db.QueryRowContext(r.Context(),
-		"SELECT url FROM links WHERE code = $1",
+		"UPDATE links SET clicks = clicks + 1 WHERE code = $1 RETURNING url",
 		code).Scan(&target)
 	if errors.Is(err, sql.ErrNoRows) {
 		http.NotFound(w, r)
