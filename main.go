@@ -10,6 +10,7 @@ import (
 	"log"
 	"math/big"
 	"net/http"
+	"net/url"
 )
 
 type shortenRequest struct {
@@ -22,6 +23,18 @@ type shortenResponse struct {
 
 func health(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("ok"))
+}
+
+func validURL(raw string) bool {
+	if len(raw) > 2048 {
+		return false
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+
+	return (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 }
 
 func newCode() (string, error) {
@@ -74,8 +87,8 @@ func shorten(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	if req.URL == "" {
-		http.Error(w, "empty url", http.StatusBadRequest)
+	if !validURL(req.URL) {
+		http.Error(w, "invalid url", http.StatusBadRequest)
 		return
 	}
 
