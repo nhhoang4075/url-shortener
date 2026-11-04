@@ -1,20 +1,36 @@
 # url-shortener (Go)
 
-Dịch vụ rút gọn đường link, viết bằng Go, lưu PostgreSQL. Bản cơ bản có hai việc:
+Dịch vụ rút gọn đường link, viết bằng Go, lưu trữ bằng PostgreSQL. Cơ bản có hai việc:
 
 - `POST /shorten`: nhận URL dài, trả về mã ngắn.
-- `GET /{mã}`: chuyển hướng (HTTP 302) tới URL dài, đồng thời đếm lượt click.
+- `GET /{code}`: chuyển hướng (HTTP 302) tới URL gốc, đồng thời đếm lượt click.
 
-## Các phần (mỗi phần chạy được rồi mới sang phần sau)
+## Chuẩn bị database
 
-| Phần | Việc | Kiến thức mới |
-|---|---|---|
-| 1 | Server trả `ok` ở `GET /health` | `net/http`, handler, `ListenAndServe` |
-| 2 | `POST /shorten`, lưu tạm trong bộ nhớ | đọc/ghi JSON, `map`, sinh mã ngẫu nhiên, mã trạng thái |
-| 3 | `GET /{mã}` chuyển hướng, 404 nếu không có | `PathValue`, `http.Redirect`, `Mutex` |
-| 4 | Chuyển lưu trữ sang PostgreSQL | `database/sql`, driver `pgx`, bảng `links` |
-| 5 | Đếm click, kiểm tra URL hợp lệ, cấu hình bằng biến môi trường | `UPDATE ... RETURNING`, `net/url`, `os.Getenv` |
-| 6 | Test bằng `httptest`, tắt êm khi Ctrl+C | `testing`, `context`, `signal.NotifyContext` |
+```bash
+createdb url_shortener
+psql url_shortener
+```
+
+Trong `psql`, tạo bảng:
+
+```sql
+CREATE TABLE links (
+    code       text PRIMARY KEY,
+    url        text NOT NULL,
+    clicks     bigint NOT NULL DEFAULT 0,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+```
+
+## Cấu hình
+
+Cấu hình đọc từ biến môi trường, ví dụ như file `.env`.
+
+| Biến | Bắt buộc | Ý nghĩa |
+|---|---|---|---|
+| `DATABASE_URL` | có | Chuỗi kết nối PostgreSQL, ví dụ `postgres://user@localhost:5432/url_shortener` |
+| `ADDR` | không | Địa chỉ và cổng server lắng nghe |
 
 ## Chạy
 
@@ -23,10 +39,14 @@ cd ~/Personal/url-shortener
 go run .
 ```
 
-Kiểm tra từ terminal khác:
+Bấm `Ctrl+C` để tắt: server chờ các request đang xử lý (tối đa 15 giây) rồi mới thoát.
+
+Chạy trong terminal khác:
 
 ```bash
 curl -i http://localhost:8080/health
+curl -i -X POST http://localhost:8080/shorten -d '{"url":"https://example.com"}'
+curl -i http://localhost:8080/<code>
 ```
 
 ## Công cụ kiểm tra
