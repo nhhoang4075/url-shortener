@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/joho/godotenv"
 	"log"
 	"math/big"
 	"net/http"
 	"net/url"
+	"os"
 )
 
 type shortenRequest struct {
@@ -19,6 +21,13 @@ type shortenRequest struct {
 
 type shortenResponse struct {
 	Code string `json:"code"`
+}
+
+func getenv(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }
 
 func health(w http.ResponseWriter, r *http.Request) {
@@ -131,8 +140,18 @@ var reserved = map[string]bool{"health": true}
 var db *sql.DB
 
 func main() {
+	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Fatal(err)
+	}
+
+	dsn := getenv("DATABASE_URL", "")
+	if dsn == "" {
+		log.Fatal("DATABASE_URL is required")
+	}
+	addr := getenv("ADDR", ":8080")
+
 	var err error
-	db, err = sql.Open("pgx", "postgres://nhh4075@localhost:5432/url_shortener")
+	db, err = sql.Open("pgx", dsn)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -146,6 +165,6 @@ func main() {
 	http.HandleFunc("POST /shorten", shorten)
 	http.HandleFunc("GET /{code}", redirect)
 
-	log.Println("listening on :8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Println("listening on", addr)
+	log.Fatal(http.ListenAndServe(addr, nil))
 }
