@@ -1,0 +1,12 @@
+# Go build output
+/url-shortener
+*.exe
+*.test
+*.out
+
+# Secrets and local config
+.env
+.env.*
+
+# macOS
+.DS_Store
