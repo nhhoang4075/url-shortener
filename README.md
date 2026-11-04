@@ -28,9 +28,9 @@ CREATE TABLE links (
 Cấu hình đọc từ biến môi trường, ví dụ như file `.env`.
 
 | Biến | Bắt buộc | Ý nghĩa |
-|---|---|---|---|
+|---|---|---|
 | `DATABASE_URL` | có | Chuỗi kết nối PostgreSQL, ví dụ `postgres://user@localhost:5432/url_shortener` |
-| `ADDR` | không | Địa chỉ và cổng server lắng nghe |
+| `ADDR` | không | Địa chỉ và cổng server lắng nghe (mặc định `:8080`) |
 
 ## Chạy
 
