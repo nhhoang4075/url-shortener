@@ -1,13 +1,15 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/json"
 	"errors"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"log"
 	"math/big"
 	"net/http"
-	"sync"
 )
 
 type shortenRequest struct {
@@ -21,10 +23,6 @@ type shortenResponse struct {
 func health(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("ok"))
 }
-
-var links = map[string]string{}
-var reserved = map[string]bool{"health": true}
-var mu sync.Mutex
 
 func newCode() (string, error) {
 	const letters = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -41,18 +39,28 @@ func newCode() (string, error) {
 	return string(b), nil
 }
 
-func store(url string) (string, error) {
-	mu.Lock()
-	defer mu.Unlock()
-
+func store(ctx context.Context, target string) (string, error) {
 	for attempt := 0; attempt < 5; attempt++ {
 		c, err := newCode()
 		if err != nil {
 			return "", err
 		}
-		if _, exists := links[c]; !exists && !reserved[c] {
-			links[c] = url
-			return c, nil
+		if !reserved[c] {
+			res, err := db.ExecContext(
+				ctx,
+				"INSERT INTO links (code, url) VALUES ($1, $2) ON CONFLICT (code) DO NOTHING",
+				c, target)
+			if err != nil {
+				return "", err
+			}
+
+			n, err := res.RowsAffected()
+			if err != nil {
+				return "", err
+			}
+			if n == 1 {
+				return c, nil
+			}
 		}
 	}
 	return "", errors.New("reached max attempt")
@@ -71,7 +79,7 @@ func shorten(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	code, err := store(req.URL)
+	code, err := store(r.Context(), req.URL)
 	if err != nil {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
@@ -88,18 +96,37 @@ func shorten(w http.ResponseWriter, r *http.Request) {
 func redirect(w http.ResponseWriter, r *http.Request) {
 	code := r.PathValue("code")
 
-	mu.Lock()
-	url, ok := links[code]
-	mu.Unlock()
-
-	if !ok {
+	var target string
+	err := db.QueryRowContext(r.Context(),
+		"SELECT url FROM links WHERE code = $1",
+		code).Scan(&target)
+	if errors.Is(err, sql.ErrNoRows) {
 		http.NotFound(w, r)
 		return
 	}
-	http.Redirect(w, r, url, http.StatusFound)
+	if err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, target, http.StatusFound)
 }
 
+var reserved = map[string]bool{"health": true}
+var db *sql.DB
+
 func main() {
+	var err error
+	db, err = sql.Open("pgx", "postgres://nhh4075@localhost:5432/url_shortener")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+
+	if err := db.Ping(); err != nil {
+		log.Fatal(err)
+	}
+
 	http.HandleFunc("GET /health", health)
 	http.HandleFunc("POST /shorten", shorten)
 	http.HandleFunc("GET /{code}", redirect)
