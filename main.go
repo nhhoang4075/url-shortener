@@ -13,6 +13,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 )
 
 type shortenRequest struct {
@@ -113,7 +116,7 @@ func shorten(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	err = json.NewEncoder(w).Encode(shortenResponse{Code: code})
 	if err != nil {
-		log.Printf("encode response: %v", err)
+		log.Printf("encode response: %v\n", err)
 	}
 }
 
@@ -165,6 +168,27 @@ func main() {
 	http.HandleFunc("POST /shorten", shorten)
 	http.HandleFunc("GET /{code}", redirect)
 
-	log.Println("listening on", addr)
-	log.Fatal(http.ListenAndServe(addr, nil))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	srv := &http.Server{Addr: addr}
+
+	go func() {
+		log.Println("starting on", addr)
+		err := srv.ListenAndServe()
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatal(err)
+		}
+	}()
+
+	<-ctx.Done()
+	log.Println("shutting down...")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("shutdown: %v\n", err)
+	}
+	log.Println("stopped")
 }
