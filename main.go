@@ -82,6 +82,8 @@ func store(ctx context.Context, target string) (string, error) {
 func shorten(w http.ResponseWriter, r *http.Request) {
 	var req shortenRequest
 
+	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
+
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
